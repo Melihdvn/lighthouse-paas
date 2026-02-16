@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"time"
 	
 	"io"
 	"os"
@@ -55,6 +56,11 @@ func (a *Adapter) ListContainers(ctx context.Context) ([]domain.Container, error
 
 // StartContainer creates and starts a container from a given image
 func (a *Adapter) StartContainer(ctx context.Context, image string) (string, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("context is nil")
+	}
+	// Context doesn't have a length property, so we remove that check.
+
 	// 1. Image Pull (Ensure image exists)
 	// In a real production system, we should handle auth and pull policy better.
 	reader, err := a.cli.ImagePull(ctx, image, types.ImagePullOptions{})
@@ -84,13 +90,16 @@ func (a *Adapter) StartContainer(ctx context.Context, image string) (string, err
 // StopContainer stops a running container
 func (a *Adapter) StopContainer(ctx context.Context, id string) error {
 	// Timeout can be configurable, but keeping it simple for now
+	timeout := 10 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	return a.cli.ContainerStop(ctx, id, container.StopOptions{})
 }
 
 // GetContainerLogs returns a stream of container logs
 func (a *Adapter) GetContainerLogs(ctx context.Context, id string) (io.ReadCloser, error) {
 	options := types.ContainerLogsOptions{
-		ShowStdout: true,
+		ShowStdout: false,
 		ShowStderr: true,
 		Follow:     false, // Can be true for streaming
 		Timestamps: true,

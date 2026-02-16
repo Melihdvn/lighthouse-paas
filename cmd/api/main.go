@@ -23,6 +23,9 @@ func main() {
 	// 3. Setup Framework (Fiber)
 	app := fiber.New()
 
+	// Serve Static Files (Dashboard)
+	app.Static("/", "./web")
+
 	// 4. Define Routes
 	api := app.Group("/api")
 	v1 := api.Group("/v1")

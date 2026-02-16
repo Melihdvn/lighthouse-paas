@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lighthouse PaaS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .container { max-width: 900px; margin-top: 50px; }
+        .status-running { color: green; font-weight: bold; }
+        .status-exited { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4 text-center">🚢 Lighthouse PaaS</h1>
+        
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Start New Container</h5>
+                <div class="input-group">
+                    <input type="text" id="imageName" class="form-control" placeholder="Image Name (e.g., nginx, redis, hello-world)">
+                    <button class="btn btn-primary" onclick="startContainer()">Start Container</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title m-0">Running Containers</h5>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="loadContainers()">Refresh</button>
+                </div>
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Image</th>
+                            <th>Status/State</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="containerList">
+                        <!-- Containers will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Modal -->
+    <div class="modal fade" id="logsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Container Logs</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <pre id="logsContent" class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow: auto;"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API_URL = '/api/v1/containers';
+
+        async function loadContainers() {
+            try {
+                const res = await fetch(API_URL);
+                const containers = await res.json();
+                const tbody = document.getElementById('containerList');
+                tbody.innerHTML = '';
+
+                containers.forEach(c => {
+                    const row = `
+                        <tr>
+                            <td><code>${c.id}</code></td>
+                            <td>${c.name}</td>
+                            <td><span class="badge bg-secondary">${c.image}</span></td>
+                            <td>
+                                <span class="${c.state === 'running' ? 'status-running' : 'status-exited'}">
+                                    ${c.state}
+                                </span>
+                                <small class="text-muted d-block">${c.status}</small>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-info text-white me-1" onclick="viewLogs('${c.id}')">Logs</button>
+                                ${c.state === 'running' ? `<button class="btn btn-sm btn-danger" onclick="stopContainer('${c.id}')">Stop</button>` : ''}
+                            </td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            } catch (err) {
+                console.error('Failed to load containers:', err);
+            }
+        }
+
+        async function startContainer() {
+            const imageInput = document.getElementById('imageName');
+            const image = imageInput.value.trim();
+            if (!image) return alert('Please enter an image name');
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image })
+                });
+                
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed to start');
+                }
+
+                imageInput.value = '';
+                await loadContainers(); // Auto refresh
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        async function stopContainer(id) {
+            if (!confirm('Are you sure you want to stop this container?')) return;
+            try {
+                const res = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error('Failed to stop');
+                await loadContainers();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        async function viewLogs(id) {
+            try {
+                const res = await fetch(`${API_URL}/${id}/logs`);
+                const logs = await res.text();
+                document.getElementById('logsContent').textContent = logs || 'No logs found.';
+                new bootstrap.Modal(document.getElementById('logsModal')).show();
+            } catch (err) {
+                alert('Failed to load logs');
+            }
+        }
+
+        // Initial load
+        loadContainers();
+    </script>
+</body>
+</html>
