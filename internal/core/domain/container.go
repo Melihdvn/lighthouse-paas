@@ -7,4 +7,5 @@ type Container struct {
 	Image   string `json:"image"`
 	Status  string `json:"status"`
 	State   string `json:"state"` // running, exited, etc.
+	IPAddress string `json:"ip_address"` // Internal IP for proxy
 }

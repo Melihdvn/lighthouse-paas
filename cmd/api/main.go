@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/melih/lighthouse-paas/internal/adapters/builder"
 	"github.com/melih/lighthouse-paas/internal/adapters/docker"
 	"github.com/melih/lighthouse-paas/internal/adapters/http"
 )
@@ -15,18 +16,36 @@ func main() {
 		log.Fatalf("Failed to initialize Docker adapter: %v", err)
 	}
 
+	// Initialize Builder Adapter
+	builderAdapter, err := builder.NewBuilderAdapter()
+	if err != nil {
+		log.Fatalf("Failed to initialize Builder adapter: %v", err)
+	}
+
 	// 2. Initialize HTTP Handlers (Interface Adapters)
 	// Dependency Injection: Injecting the Docker Adapter (which implements ContainerService)
-	// into the HTTP Handler.
-	containerHandler := http.NewContainerHandler(dockerAdapter)
+	// and Builder Adapter into the HTTP Handler.
+	containerHandler := http.NewContainerHandler(dockerAdapter, builderAdapter)
+	
+	// Initialize Proxy Handler
+	proxyHandler := http.NewProxyHandler(dockerAdapter)
 
 	// 3. Setup Framework (Fiber)
 	app := fiber.New()
+
+	// Proxy Middleware: Check for subdomains first!
+	// This must be BEFORE app.Static to capture subdomain requests
+	app.Use(proxyHandler.ProxyRequest)
 
 	// Serve Static Files (Dashboard)
 	app.Static("/", "./web")
 
 	// 4. Define Routes
+	
+	// Proxy Middleware: Check for subdomains first!
+	// app.Use(proxyHandler.ProxyRequest) moved before Static
+
+
 	api := app.Group("/api")
 	v1 := api.Group("/v1")
 

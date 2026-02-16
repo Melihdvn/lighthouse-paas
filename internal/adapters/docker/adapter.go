@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"time"
-	
 	"io"
 	"os"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"github.com/melih/lighthouse-paas/internal/core/domain"
 )
 
@@ -43,12 +43,38 @@ func (a *Adapter) ListContainers(ctx context.Context) ([]domain.Container, error
 			name = c.Names[0][1:]
 		}
 
+		// Get Port Mapping (Host Port)
+		// We prioritize the mapped port over internal IP for connectivity from host
+		hostPort := ""
+		if len(c.Ports) > 0 {
+			// Find the mapping for 8080/tcp
+			for _, p := range c.Ports {
+				if p.PrivatePort == 8080 {
+					hostPort = fmt.Sprintf("127.0.0.1:%d", p.PublicPort)
+					break
+				}
+			}
+			// Fallback if 8080 is not found but other ports exist
+			if hostPort == "" {
+				hostPort = fmt.Sprintf("127.0.0.1:%d", c.Ports[0].PublicPort)
+			}
+		}
+		
+		// Fallback to internal IP if no ports mapped (should not happen with new logic)
+		if hostPort == "" {
+			for _, network := range c.NetworkSettings.Networks {
+				hostPort = network.IPAddress + ":8080"
+				break 
+			}
+		}
+
 		result = append(result, domain.Container{
-			ID:     c.ID[:12], // Short ID
-			Name:   name,
-			Image:  c.Image,
-			Status: c.Status,
-			State:  c.State,
+			ID:        c.ID[:12], // Short ID
+			Name:      name,
+			Image:     c.Image,
+			Status:    c.Status,
+			State:     c.State,
+			IPAddress: hostPort, // We are reusing this field to mean "Target Address"
 		})
 	}
 	return result, nil
@@ -61,20 +87,44 @@ func (a *Adapter) StartContainer(ctx context.Context, image string) (string, err
 	}
 	// Context doesn't have a length property, so we remove that check.
 
-	// 1. Image Pull (Ensure image exists)
-	// In a real production system, we should handle auth and pull policy better.
-	reader, err := a.cli.ImagePull(ctx, image, types.ImagePullOptions{})
+	// 1. Check if image exists locally
+	_, _, err := a.cli.ImageInspectWithRaw(ctx, image)
 	if err != nil {
-		return "", fmt.Errorf("failed to pull image: %w", err)
+		if client.IsErrNotFound(err) {
+			// Image not found locally, try to pull
+			fmt.Printf("Pulling image %s...\n", image)
+			reader, pullErr := a.cli.ImagePull(ctx, image, types.ImagePullOptions{})
+			if pullErr != nil {
+				return "", fmt.Errorf("failed to pull image: %w", pullErr)
+			}
+			defer reader.Close()
+			io.Copy(os.Stdout, reader)
+		} else {
+			return "", fmt.Errorf("failed to inspect image: %w", err)
+		}
+	} else {
+		fmt.Printf("Image %s found locally, skipping pull.\n", image)
 	}
-	defer reader.Close()
-	// Discard output to avoid filling memory, but user might want to see it logs in future
-	io.Copy(os.Stdout, reader)
 
-	// 2. Create Container
+	// 2. Create Container with Port Binding
+	// We bind container's 8080 to a random host port
+	hostConfig := &container.HostConfig{
+		PortBindings: nat.PortMap{
+			"8080/tcp": []nat.PortBinding{
+				{
+					HostIP:   "0.0.0.0",
+					HostPort: "0", // Random available port
+				},
+			},
+		},
+	}
+
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: image,
-	}, nil, nil, nil, "")
+		ExposedPorts: nat.PortSet{
+			"8080/tcp": struct{}{},
+		},
+	}, hostConfig, nil, nil, "")
 	if err != nil {
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}

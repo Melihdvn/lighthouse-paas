@@ -19,9 +19,12 @@
         <div class="card mb-4">
             <div class="card-body">
                 <h5 class="card-title">Start New Container</h5>
+                <div class="input-group mb-3">
+                    <input type="text" id="imageName" class="form-control" placeholder="Docker Image Name (e.g., nginx) OR...">
+                </div>
                 <div class="input-group">
-                    <input type="text" id="imageName" class="form-control" placeholder="Image Name (e.g., nginx, redis, hello-world)">
-                    <button class="btn btn-primary" onclick="startContainer()">Start Container</button>
+                    <input type="text" id="repoUrl" class="form-control" placeholder="GitHub Repo URL (e.g., https://github.com/melih/test-app)">
+                    <button class="btn btn-primary" onclick="startContainer()">Start / Build & Run</button>
                 </div>
             </div>
         </div>
@@ -37,6 +40,7 @@
                         <tr>
                             <th>ID</th>
                             <th>Name</th>
+                            <th>App URL</th>
                             <th>Image</th>
                             <th>Status/State</th>
                             <th>Actions</th>
@@ -81,6 +85,11 @@
                         <tr>
                             <td><code>${c.id}</code></td>
                             <td>${c.name}</td>
+                            <td>
+                                <a href="http://${c.name}.localhost:3000" target="_blank">
+                                    ${c.name}.localhost:3000
+                                </a>
+                            </td>
                             <td><span class="badge bg-secondary">${c.image}</span></td>
                             <td>
                                 <span class="${c.state === 'running' ? 'status-running' : 'status-exited'}">
@@ -103,14 +112,18 @@
 
         async function startContainer() {
             const imageInput = document.getElementById('imageName');
+            const repoInput = document.getElementById('repoUrl');
+            
             const image = imageInput.value.trim();
-            if (!image) return alert('Please enter an image name');
+            const repoUrl = repoInput.value.trim();
+
+            if (!image && !repoUrl) return alert('Please enter an Image Name OR a GitHub Repo URL');
 
             try {
                 const res = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image })
+                    body: JSON.stringify({ image, repo_url: repoUrl })
                 });
                 
                 if (!res.ok) {
@@ -119,6 +132,7 @@
                 }
 
                 imageInput.value = '';
+                repoInput.value = '';
                 await loadContainers(); // Auto refresh
             } catch (err) {
                 alert('Error: ' + err.message);
