@@ -12,28 +12,29 @@ import (
 	"github.com/melih/lighthouse-paas/internal/core/ports"
 )
 
+// ProxyHandler manages reverse proxying for subdomains.
 type ProxyHandler struct {
 	service ports.ContainerService
 }
 
+// NewProxyHandler creates a new proxy handler.
 func NewProxyHandler(service ports.ContainerService) *ProxyHandler {
 	return &ProxyHandler{service: service}
 }
 
-// ProxyRequest handles requests to subdomains (e.g., app-name.localhost)
+// ProxyRequest intercepts requests to subdomains (e.g., app-name.localhost)
+// and routes them to the corresponding container's internal IP.
 func (h *ProxyHandler) ProxyRequest(c *fiber.Ctx) error {
-	host := c.Hostname() // e.g., "my-app.localhost"
+	host := c.Hostname()
 
 	// 1. Extract Subdomain
-	// Ideally we should configure the base domain. Assuming ".localhost" for now.
 	parts := strings.Split(host, ".")
 	if len(parts) < 2 {
-		// No subdomain, let it pass to next handler (Dashboard/API)
 		return c.Next()
 	}
 	subdomain := parts[0]
 
-	// If subdomain is "www" or empty, skip
+	// Skip common subdomains or empty ones
 	if subdomain == "www" || subdomain == "" {
 		return c.Next()
 	}
@@ -68,25 +69,24 @@ func (h *ProxyHandler) ProxyRequest(c *fiber.Ctx) error {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(remote)
-	
+
 	// Custom Director: Rewrite Host header to target
+	// This ensures the container receives a request with a Host header it expects (IP based),
+	// avoiding "Host not recognized" errors from the application inside.
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
-		// Crucial: Set Host to target (e.g., 127.0.0.1:32769)
-		// This prevents the container from seeing 'strange_tu.localhost' which it might not recognize
-		req.Host = remote.Host 
+		req.Host = remote.Host
 		req.URL.Host = remote.Host
 		req.URL.Scheme = remote.Scheme
 	}
 
-	// Error Handler
+	// Error Handler: Return standard BadGateway if connectivity fails
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		fmt.Printf("PROXY ERROR: %v\n", err)
 		w.WriteHeader(http.StatusBadGateway)
 		w.Write([]byte(fmt.Sprintf("Proxy Info: target=%s error=%v", targetIP, err)))
 	}
-	
+
 	// Fiber <-> Net/HTTP Adaptor
 	return adaptor.HTTPHandler(proxy)(c)
 }

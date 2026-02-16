@@ -1,3 +1,5 @@
+// Lighthouse PaaS API Entry Point
+// This file initializes the application infrastructure, dependency injection, and HTTP server.
 package main
 
 import (
@@ -10,7 +12,7 @@ import (
 )
 
 func main() {
-	// 1. Initialize Adapters (Infrastructure)
+	// Initialize Docker Adapter
 	dockerAdapter, err := docker.NewAdapter()
 	if err != nil {
 		log.Fatalf("Failed to initialize Docker adapter: %v", err)
@@ -22,41 +24,34 @@ func main() {
 		log.Fatalf("Failed to initialize Builder adapter: %v", err)
 	}
 
-	// 2. Initialize HTTP Handlers (Interface Adapters)
-	// Dependency Injection: Injecting the Docker Adapter (which implements ContainerService)
-	// and Builder Adapter into the HTTP Handler.
+	// Initialize Interface Adapters (HTTP Handlers)
 	containerHandler := http.NewContainerHandler(dockerAdapter, builderAdapter)
-	
-	// Initialize Proxy Handler
 	proxyHandler := http.NewProxyHandler(dockerAdapter)
 
-	// 3. Setup Framework (Fiber)
+	// Setup Fiber Framework
 	app := fiber.New()
 
-	// Proxy Middleware: Check for subdomains first!
-	// This must be BEFORE app.Static to capture subdomain requests
+	// Middleware Registration
+	// Proxy Middleware must be registered BEFORE Static file serving.
+	// This ensures subdomains (e.g., app.localhost) are intercepted and proxied,
+	// while the root domain falls through to the dashboard.
 	app.Use(proxyHandler.ProxyRequest)
 
-	// Serve Static Files (Dashboard)
+	// Serve Static Dashboard
 	app.Static("/", "./web")
 
-	// 4. Define Routes
-	
-	// Proxy Middleware: Check for subdomains first!
-	// app.Use(proxyHandler.ProxyRequest) moved before Static
-
-
+	// API Routes
 	api := app.Group("/api")
 	v1 := api.Group("/v1")
 
-	// Routes for Container operations
+	// Container Management Routes
 	containers := v1.Group("/containers")
 	containers.Get("/", containerHandler.ListContainers)
 	containers.Post("/", containerHandler.StartContainer)
 	containers.Delete("/:id", containerHandler.StopContainer)
 	containers.Get("/:id/logs", containerHandler.GetContainerLogs)
 
-	// 5. Start Server
+	// Start Server
 	log.Println("Server starting on :3000")
 	if err := app.Listen(":3000"); err != nil {
 		log.Fatalf("Server failed to start: %v", err)

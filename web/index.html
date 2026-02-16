@@ -90,7 +90,12 @@
                                     ${c.name}.localhost:3000
                                 </a>
                             </td>
-                            <td><span class="badge bg-secondary">${c.image}</span></td>
+                            <td>
+                            <span class="badge bg-secondary d-inline-block text-truncate"
+                                    style="max-width: 100px;">
+                                ${c.image}
+                            </span>
+                            </td>
                             <td>
                                 <span class="${c.state === 'running' ? 'status-running' : 'status-exited'}">
                                     ${c.state}

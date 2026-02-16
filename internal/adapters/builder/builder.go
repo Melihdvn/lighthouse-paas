@@ -11,10 +11,12 @@ import (
 	"github.com/go-git/go-git/v5"
 )
 
+// Adapter implements ports.BuilderService using git and docker client.
 type Adapter struct {
 	cli *client.Client
 }
 
+// NewBuilderAdapter initializes a new Builder Adapter.
 func NewBuilderAdapter() (*Adapter, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -23,16 +25,17 @@ func NewBuilderAdapter() (*Adapter, error) {
 	return &Adapter{cli: cli}, nil
 }
 
-// BuildImage clones a repo and builds a Docker image
+// BuildImage clones a remote repository and builds a Docker image from it.
+// It assumes the repository contains a valid Dockerfile at the root.
 func (a *Adapter) BuildImage(ctx context.Context, repoURL string, imageName string) (string, error) {
-	// 1. Create temporary directory
+	// Create temporary directory for the build context
 	tmpDir, err := os.MkdirTemp("", "lighthouse-build-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir) // Clean up after build
+	defer os.RemoveAll(tmpDir)
 
-	// 2. Clone Repository
+	// Clone repository
 	fmt.Printf("Cloning %s into %s...\n", repoURL, tmpDir)
 	_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
 		URL:      repoURL,
@@ -43,13 +46,13 @@ func (a *Adapter) BuildImage(ctx context.Context, repoURL string, imageName stri
 		return "", fmt.Errorf("failed to clone repo: %w", err)
 	}
 
-	// 3. Create Build Context (Tar)
+	// Create Build Context (Tar)
 	tar, err := archive.TarWithOptions(tmpDir, &archive.TarOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to create build context: %w", err)
 	}
 
-	// 4. Build Docker Image
+	// Build Docker Image
 	fmt.Printf("Building Docker image: %s...\n", imageName)
 	resp, err := a.cli.ImageBuild(ctx, tar, types.ImageBuildOptions{
 		Tags:       []string{imageName},
@@ -61,11 +64,8 @@ func (a *Adapter) BuildImage(ctx context.Context, repoURL string, imageName stri
 	}
 	defer resp.Body.Close()
 
-	// Wait for build to complete (reading body completely)
-	// We are discarding output here, but could stream it to user.
-	// io.Copy(os.Stdout, resp.Body)
-	// Using a buffer or discard is necessary to let the build finish.
-	// For now, let's just drain it.
+	// Wait for build to complete by reading the output stream
+	// We discard the output but it could be streamed to the user in a real scenario.
 	buf := make([]byte, 1024)
 	for {
 		_, err := resp.Body.Read(buf)
